@@ -1,3 +1,5 @@
+use core::ops::ControlFlow;
+
 use embassy_time::{Duration, Instant, TimeoutError};
 use embedded_io::Write;
 
@@ -43,22 +45,37 @@ where
         }
     }
 
-    fn send_request(&mut self, len: usize) -> Result<(), Error> {
-        if len < 50 {
-            debug!("Sending command: {:?}", LossyStr(&self.buf[..len]));
-        } else {
-            debug!("Sending command with long payload ({} bytes)", len,);
-        }
-
+    fn send_cmd<Cmd: AtatCmd>(&mut self, cmd: &Cmd) -> Result<(), Error> {
         self.wait_cooldown_timer();
 
         // Clear any pending response signal
         self.res_slot.reset();
 
-        // Write request
-        self.writer
-            .write_all(&self.buf[..len])
-            .map_err(|_| Error::Write)?;
+        for step in 1.. {
+            let flow = cmd.write(self.buf);
+            let (ControlFlow::Break(len) | ControlFlow::Continue(len)) = flow;
+
+            match len {
+                0..50 => debug!(
+                    "Sending command (step {}): {:?}",
+                    step,
+                    LossyStr(&self.buf[..len])
+                ),
+                _ => debug!(
+                    "Sending command with long payload (step {}, {} bytes)",
+                    step, len
+                ),
+            }
+
+            // Write request
+            self.writer
+                .write_all(&self.buf[..len])
+                .map_err(|_| Error::Write)?;
+
+            if flow.is_break() {
+                break;
+            }
+        }
         self.writer.flush().map_err(|_| Error::Write)?;
 
         self.start_cooldown_timer();
@@ -106,8 +123,7 @@ where
     W: Write,
 {
     fn send<Cmd: AtatCmd>(&mut self, cmd: &Cmd) -> Result<Cmd::Response, Error> {
-        let len = cmd.write(self.buf);
-        self.send_request(len)?;
+        self.send_cmd(cmd)?;
         if !Cmd::EXPECTS_RESPONSE_CODE {
             cmd.parse(Ok(&[]))
         } else {

@@ -1,3 +1,5 @@
+use core::ops::ControlFlow;
+
 use super::AtatClient;
 use crate::{
     helpers::LossyStr,
@@ -42,26 +44,41 @@ impl<W: Write, const INGRESS_BUF_SIZE: usize> ErrorType for Client<'_, W, INGRES
 }
 
 impl<'a, W: Write, const INGRESS_BUF_SIZE: usize> Client<'a, W, INGRESS_BUF_SIZE> {
-    async fn send_request(&mut self, len: usize) -> Result<(), Error> {
-        if len < 50 {
-            debug!("Sending command: {:?}", LossyStr(&self.buf[..len]));
-        } else {
-            debug!("Sending command with long payload ({} bytes)", len);
-        }
-
+    async fn send_cmd<Cmd: AtatCmd>(&mut self, cmd: &Cmd) -> Result<(), Error> {
         self.wait_cooldown_timer().await;
 
         // Clear any pending response signal
         self.res_slot.reset();
 
-        // Write request
-        with_timeout(
-            self.config.tx_timeout,
-            self.writer.write_all(&self.buf[..len]),
-        )
-        .await
-        .map_err(|_| Error::Timeout)?
-        .map_err(|_| Error::Write)?;
+        for step in 0.. {
+            let flow = cmd.write(self.buf);
+            let (ControlFlow::Break(len) | ControlFlow::Continue(len)) = flow;
+
+            match len {
+                0..50 => debug!(
+                    "Sending command (step {}): {:?}",
+                    step,
+                    LossyStr(&self.buf[..len])
+                ),
+                _ => debug!(
+                    "Sending command with long payload (step {}, {} bytes)",
+                    step, len
+                ),
+            }
+
+            // Write request
+            with_timeout(
+                self.config.tx_timeout,
+                self.writer.write_all(&self.buf[..len]),
+            )
+            .await
+            .map_err(|_| Error::Timeout)?
+            .map_err(|_| Error::Write)?;
+
+            if flow.is_break() {
+                break;
+            }
+        }
 
         with_timeout(self.config.flush_timeout, self.writer.flush())
             .await
@@ -119,8 +136,7 @@ impl<'a, W: Write, const INGRESS_BUF_SIZE: usize> Client<'a, W, INGRESS_BUF_SIZE
 
 impl<W: Write, const INGRESS_BUF_SIZE: usize> AtatClient for Client<'_, W, INGRESS_BUF_SIZE> {
     async fn send<Cmd: AtatCmd>(&mut self, cmd: &Cmd) -> Result<Cmd::Response, Error> {
-        let len = cmd.write(self.buf);
-        self.send_request(len).await?;
+        self.send_cmd(cmd).await?;
         if !Cmd::EXPECTS_RESPONSE_CODE {
             cmd.parse(Ok(&[]))
         } else {

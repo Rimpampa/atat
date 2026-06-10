@@ -1,3 +1,5 @@
+use core::ops::ControlFlow;
+
 use crate::error::{Error, InternalError};
 use heapless::{String, Vec};
 
@@ -33,6 +35,7 @@ pub trait AtatUrc {
 /// ```
 /// use atat::{AtatCmd, AtatResp, Error, InternalError};
 /// use core::fmt::Write;
+/// use core::ops::ControlFlow;
 /// use heapless::Vec;
 ///
 /// pub struct SetGreetingText<'a> {
@@ -47,12 +50,12 @@ pub trait AtatUrc {
 ///     type Response = NoResponse;
 ///     const MAX_LEN: usize = 64;
 ///
-///     fn write(&self, mut buf: &mut [u8]) -> usize {
+///     fn write(&self, mut buf: &mut [u8]) -> ControlFlow<usize, usize> {
 ///         assert!(buf.len() >= Self::MAX_LEN);
 ///         let buf_len = buf.len();
 ///         use embedded_io::Write;
 ///         write!(buf, "AT+CSGT={}", self.text);
-///         buf_len - buf.len()
+///         ControlFlow::Break(buf_len - buf.len())
 ///     }
 ///
 ///     fn parse(&self, resp: Result<&[u8], InternalError>) -> Result<Self::Response, Error> {
@@ -87,7 +90,7 @@ pub trait AtatCmd {
     const EXPECTS_RESPONSE_CODE: bool = true;
 
     /// Write the command and return the number of written bytes.
-    fn write(&self, buf: &mut [u8]) -> usize;
+    fn write(&self, buf: &mut [u8]) -> ControlFlow<usize, usize>;
 
     /// Parse the response into a `Self::Response` or `Error` instance.
     fn parse(&self, resp: Result<&[u8], InternalError>) -> Result<Self::Response, Error>;
@@ -101,11 +104,11 @@ impl<const L: usize> AtatCmd for String<L> {
     type Response = String<256>;
     const MAX_LEN: usize = L;
 
-    fn write(&self, buf: &mut [u8]) -> usize {
+    fn write(&self, buf: &mut [u8]) -> ControlFlow<usize, usize> {
         let bytes = self.as_bytes();
         let len = bytes.len();
         buf[..len].copy_from_slice(bytes);
-        len
+        ControlFlow::Break(len)
     }
 
     fn parse(&self, resp: Result<&[u8], InternalError>) -> Result<Self::Response, Error> {

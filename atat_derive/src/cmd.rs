@@ -157,14 +157,14 @@ pub fn atat_cmd(input: TokenStream) -> TokenStream {
             #reattempt_on_parse_err
 
             #[inline]
-            fn write(&self, buf: &mut [u8]) -> usize {
+            fn write(&self, buf: &mut [u8]) -> ::core::ops::ControlFlow<usize, usize> {
                 match atat::serde_at::to_slice(self, #cmd, buf, atat::serde_at::SerializeOptions {
                     value_sep: #value_sep,
                     cmd_prefix: #cmd_prefix,
                     termination: #termination,
                     escape_strings: #escape_strings
                 }) {
-                    Ok(s) => s,
+                    Ok(s) => ::core::ops::ControlFlow::Break(s),
                     Err(_) => panic!("Failed to serialize command")
                 }
             }

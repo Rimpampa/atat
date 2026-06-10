@@ -281,8 +281,9 @@ mod tests {
 
     #[test]
     fn test_length_serialize() {
+        use core::ops::ControlFlow::*;
         let mut buf = [0; 360];
-        let len = LengthTester {
+        let (Continue(len) | Break(len)) = LengthTester {
             x: 8,
             y: String::try_from("SomeString").unwrap(),
             z: 2,
