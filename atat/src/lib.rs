@@ -15,7 +15,7 @@
 //!
 //! ### Command and response example without `atat_derive`:
 //! ```
-//! use atat::{AtatCmd, AtatResp, Error, InternalError};
+//! use atat::{AtatCmd, AtatResp, InternalError, CmdResult, NoCustomError};
 //! use core::fmt::Write;
 //! use heapless::{String, Vec};
 //!
@@ -37,6 +37,7 @@
 //!
 //! impl<'a> AtatCmd for SetGreetingText<'a> {
 //!     type Response = NoResponse;
+//!     type CustomError = NoCustomError;
 //!     const MAX_LEN: usize = 64;
 //!
 //!     fn write(&self, mut buf: &mut [u8]) -> usize {
@@ -46,13 +47,14 @@
 //!         buf_len - buf.len()
 //!     }
 //!
-//!     fn parse(&self, resp: Result<&[u8], InternalError>) -> Result<Self::Response, Error> {
+//!     fn parse(&self, resp: Result<&[u8], InternalError>) -> CmdResult<Self> {
 //!         Ok(NoResponse)
 //!     }
 //! }
 //!
 //! impl AtatCmd for GetGreetingText {
 //!     type Response = GreetingText;
+//!     type CustomError = NoCustomError;
 //!     const MAX_LEN: usize = 8;
 //!
 //!     fn write(&self, mut buf: &mut [u8]) -> usize {
@@ -62,7 +64,7 @@
 //!         len
 //!     }
 //!
-//!     fn parse(&self, resp: Result<&[u8], InternalError>) -> Result<Self::Response, Error> {
+//!     fn parse(&self, resp: Result<&[u8], InternalError>) -> CmdResult<Self> {
 //!         // Parse resp into `GreetingText`
 //!         Ok(GreetingText {
 //!             text: String::try_from(core::str::from_utf8(resp.unwrap()).unwrap()).unwrap(),
@@ -266,12 +268,15 @@ pub use heapless;
 
 pub use config::Config;
 pub use digest::{AtDigester, AtDigester as DefaultDigester, DigestResult, Digester, Parser};
-pub use error::{CmeError, CmsError, ConnectionError, Error, InternalError};
+pub use error::{CmeError, CmsError, ConnectionError, Error, InternalError, NoCustomError};
 pub use ingress::{AtatIngress, Error as IngressError, Ingress};
 pub use response::Response;
 pub use response_slot::ResponseSlot;
 pub use traits::{AtatCmd, AtatResp, AtatUrc};
 pub use urc_channel::{UrcChannel, UrcSubscription};
+
+/// Convenience alias for `Result<Cmd::Response, Error<Cmd::CustomError>>`.
+pub type CmdResult<Cmd> = Result<<Cmd as AtatCmd>::Response, Error<<Cmd as AtatCmd>::CustomError>>;
 
 #[cfg(test)]
 #[cfg(feature = "defmt")]

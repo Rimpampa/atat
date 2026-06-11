@@ -112,7 +112,7 @@ mod tests {
     use std::convert::TryFrom;
 
     use crate as atat;
-    use atat::{derive::AtatLen, AtatCmd};
+    use atat::{derive::AtatLen, AtatCmd, NoCustomError};
     use atat_derive::{AtatCmd, AtatEnum, AtatResp};
     use heapless::{String, Vec};
     use serde_at::{from_str, to_string, HexStr, SerializeOptions};
@@ -391,15 +391,55 @@ mod tests {
         arg1: u8,
     }
 
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct CustomCmdError(String<16>);
+
+    impl From<&[u8]> for CustomCmdError {
+        fn from(value: &[u8]) -> Self {
+            Self(String::try_from(core::str::from_utf8(value).unwrap()).unwrap())
+        }
+    }
+
+    impl core::fmt::Display for CustomCmdError {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            f.write_str(self.0.as_str())
+        }
+    }
+
+    impl std::error::Error for CustomCmdError {}
+
     #[derive(Debug, PartialEq, AtatCmd)]
     #[at_cmd("+CFUN", CustomResponseParse, parse = custom_parse)]
     struct RequestWithCustomResponseParse;
+
+    #[derive(Debug, PartialEq, AtatCmd)]
+    #[at_cmd("+CFUN", CustomResponseParse)]
+    #[custom_error(CustomCmdError)]
+    struct RequestWithCustomError;
 
     #[test]
     fn test_custom_parse() {
         assert_eq!(
             RequestWithCustomResponseParse.parse(Ok(b"ignore123")),
             Ok(CustomResponseParse { arg1: 123 })
+        );
+    }
+
+    #[test]
+    fn test_default_custom_error_type() {
+        assert_eq!(
+            RequestWithCustomResponseParse.parse(Err(atat::InternalError::Custom(b"ignored"))),
+            Err(atat::Error::Custom(NoCustomError))
+        );
+    }
+
+    #[test]
+    fn test_custom_error_type_override() {
+        assert_eq!(
+            RequestWithCustomError.parse(Err(atat::InternalError::Custom(b"custom"))),
+            Err(atat::Error::Custom(CustomCmdError(
+                String::try_from("custom").unwrap()
+            )))
         );
     }
 }

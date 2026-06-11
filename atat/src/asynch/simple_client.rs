@@ -1,5 +1,7 @@
 use super::AtatClient;
-use crate::{helpers::LossyStr, AtatCmd, Config, DigestResult, Digester, Error, Response};
+use crate::{
+    helpers::LossyStr, AtatCmd, CmdResult, Config, DigestResult, Digester, Error, Response,
+};
 use embassy_time::{with_timeout, Duration, Timer};
 use embedded_io_async::{Read, Write};
 
@@ -24,7 +26,7 @@ impl<'a, RW: Read + Write, D: Digester> SimpleClient<'a, RW, D> {
         }
     }
 
-    async fn send_request(&mut self, len: usize) -> Result<(), Error> {
+    async fn send_request<E>(&mut self, len: usize) -> Result<(), Error<E>> {
         if len < 50 {
             debug!("Sending command: {:?}", LossyStr(&self.buf[..len]));
         } else {
@@ -142,7 +144,7 @@ impl<'a, RW: Read + Write, D: Digester> SimpleClient<'a, RW, D> {
 }
 
 impl<RW: Read + Write, D: Digester> AtatClient for SimpleClient<'_, RW, D> {
-    async fn send<Cmd: AtatCmd>(&mut self, cmd: &Cmd) -> Result<Cmd::Response, Error> {
+    async fn send<Cmd: AtatCmd>(&mut self, cmd: &Cmd) -> CmdResult<Cmd> {
         let len = cmd.write(self.buf);
 
         self.send_request(len).await?;
@@ -154,7 +156,8 @@ impl<RW: Read + Write, D: Digester> AtatClient for SimpleClient<'_, RW, D> {
                 self.wait_response(),
             )
             .await
-            .map_err(|_| Error::Timeout)??;
+            .map_err(|_| Error::Timeout)?
+            .map_err(Error::from_internal)?;
 
             cmd.parse((&response).into())
         }

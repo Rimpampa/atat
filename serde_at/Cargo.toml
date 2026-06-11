@@ -27,7 +27,6 @@ serde_bytes = { version = "0.11.14", default-features = false }
 
 [features]
 default = []
-custom-error-messages = []
 std = ["alloc"]
 hex_str_arrays = []
 alloc = ["serde/alloc"]

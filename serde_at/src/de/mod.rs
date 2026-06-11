@@ -63,10 +63,6 @@ pub enum Error {
 
     /// Error with a custom message that we had to discard.
     CustomError,
-
-    /// Error with a custom message that was preserved.
-    #[cfg(feature = "custom-error-messages")]
-    CustomErrorWithMessage(heapless::String<128>),
 }
 
 pub(crate) struct Deserializer<'a> {
@@ -670,23 +666,11 @@ impl<'de> de::Deserializer<'de> for &mut Deserializer<'de> {
 }
 
 impl de::Error for Error {
-    #[cfg_attr(not(feature = "custom-error-messages"), allow(unused_variables))]
-    fn custom<T>(msg: T) -> Self
+    fn custom<T>(_msg: T) -> Self
     where
         T: fmt::Display,
     {
-        #[cfg(not(feature = "custom-error-messages"))]
-        {
-            Self::CustomError
-        }
-        #[cfg(feature = "custom-error-messages")]
-        {
-            use core::fmt::Write;
-
-            let mut string = heapless::String::new();
-            write!(string, "{:.64}", msg).unwrap();
-            Self::CustomErrorWithMessage(string)
-        }
+        Self::CustomError
     }
 }
 
@@ -716,8 +700,6 @@ impl fmt::Display for Error {
                 }
                 Self::CustomError =>
                     "AT Command string does not match deserializer\u{2019}s expected format.",
-                #[cfg(feature = "custom-error-messages")]
-                Self::CustomErrorWithMessage(msg) => msg.as_str(),
                 _ => "Invalid AT Command string",
             }
         )

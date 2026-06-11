@@ -1,4 +1,7 @@
-use crate::error::{Error, InternalError};
+use crate::{
+    error::{Error, InternalError, NoCustomError},
+    CmdResult,
+};
 use heapless::{String, Vec};
 
 /// This trait needs to be implemented for every response type.
@@ -31,7 +34,7 @@ pub trait AtatUrc {
 ///
 /// Example:
 /// ```
-/// use atat::{AtatCmd, AtatResp, Error, InternalError};
+/// use atat::{AtatCmd, AtatResp, InternalError, CmdResult, NoCustomError};
 /// use core::fmt::Write;
 /// use heapless::Vec;
 ///
@@ -45,6 +48,7 @@ pub trait AtatUrc {
 ///
 /// impl<'a> AtatCmd for SetGreetingText<'a> {
 ///     type Response = NoResponse;
+///     type CustomError = NoCustomError;
 ///     const MAX_LEN: usize = 64;
 ///
 ///     fn write(&self, mut buf: &mut [u8]) -> usize {
@@ -55,7 +59,7 @@ pub trait AtatUrc {
 ///         buf_len - buf.len()
 ///     }
 ///
-///     fn parse(&self, resp: Result<&[u8], InternalError>) -> Result<Self::Response, Error> {
+///     fn parse(&self, resp: Result<&[u8], InternalError>) -> CmdResult<Self> {
 ///         Ok(NoResponse)
 ///     }
 /// }
@@ -63,6 +67,8 @@ pub trait AtatUrc {
 pub trait AtatCmd {
     /// The type of the response. Must implement the `AtatResp` trait.
     type Response: AtatResp;
+
+    type CustomError: core::error::Error + Clone + Eq;
 
     /// The size of the buffer required to write the request.
     const MAX_LEN: usize;
@@ -90,7 +96,7 @@ pub trait AtatCmd {
     fn write(&self, buf: &mut [u8]) -> usize;
 
     /// Parse the response into a `Self::Response` or `Error` instance.
-    fn parse(&self, resp: Result<&[u8], InternalError>) -> Result<Self::Response, Error>;
+    fn parse(&self, resp: Result<&[u8], InternalError>) -> CmdResult<Self>;
 }
 
 impl<T, const L: usize> AtatResp for Vec<T, L> where T: AtatResp {}
@@ -99,6 +105,7 @@ impl<const L: usize> AtatResp for String<L> {}
 
 impl<const L: usize> AtatCmd for String<L> {
     type Response = String<256>;
+    type CustomError = NoCustomError;
     const MAX_LEN: usize = L;
 
     fn write(&self, buf: &mut [u8]) -> usize {
@@ -108,7 +115,7 @@ impl<const L: usize> AtatCmd for String<L> {
         len
     }
 
-    fn parse(&self, resp: Result<&[u8], InternalError>) -> Result<Self::Response, Error> {
+    fn parse(&self, resp: Result<&[u8], InternalError>) -> CmdResult<Self> {
         let utf8_string =
             core::str::from_utf8(resp.map_err(Error::from)?).map_err(|_| Error::Parse)?;
         String::try_from(utf8_string).map_err(|_| Error::Parse)

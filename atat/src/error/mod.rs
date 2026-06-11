@@ -71,7 +71,7 @@ impl<'a> defmt::Format for InternalError<'a> {
 /// Errors returned by the crate
 #[derive(Clone, Debug, PartialEq, Eq, Error)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum Error {
+pub enum Error<Custom = NoCustomError> {
     /// Serial read error
     #[error("Serial read error")]
     Read,
@@ -103,11 +103,8 @@ pub enum Error {
     #[error("Connection Error")]
     ConnectionError(ConnectionError),
     /// Error response containing any error message
-    #[error("Custom error response")]
-    Custom,
-    #[cfg(feature = "custom-error-messages")]
     #[error("Error response containing any error message {0:?}")]
-    CustomMessage(heapless::Vec<u8, 64>),
+    Custom(Custom),
 }
 
 impl embedded_io::Error for Error {
@@ -125,14 +122,15 @@ impl embedded_io::Error for Error {
                 ConnectionError::NoAnswer => embedded_io::ErrorKind::TimedOut,
             },
             _ => embedded_io::ErrorKind::Other,
-            #[cfg(feature = "custom-error-messages")]
-            Self::CustomMessage(_) => embedded_io::ErrorKind::Other,
         }
     }
 }
 
-impl<'a> From<InternalError<'a>> for Error {
-    fn from(ie: InternalError) -> Self {
+impl<'a, Custom> From<InternalError<'a>> for Error<Custom>
+where
+    Custom: From<&'a [u8]>,
+{
+    fn from(ie: InternalError<'a>) -> Self {
         match ie {
             InternalError::Read => Self::Read,
             InternalError::Write => Self::Write,
@@ -144,12 +142,40 @@ impl<'a> From<InternalError<'a>> for Error {
             InternalError::CmeError(e) => Self::CmeError(e),
             InternalError::CmsError(e) => Self::CmsError(e),
             InternalError::ConnectionError(e) => Self::ConnectionError(e),
-            #[cfg(feature = "custom-error-messages")]
-            InternalError::Custom(e) => Self::CustomMessage(
-                heapless::Vec::from_slice(&e[..core::cmp::min(e.len(), 64)]).unwrap_or_default(),
-            ),
-            #[cfg(not(feature = "custom-error-messages"))]
-            InternalError::Custom(_) => Self::Custom,
+            InternalError::Custom(data) => Self::Custom(data.into()),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Error)]
+pub struct NoCustomError;
+
+impl From<&[u8]> for NoCustomError {
+    fn from(_: &[u8]) -> Self {
+        Self
+    }
+}
+
+impl core::fmt::Display for NoCustomError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "")
+    }
+}
+
+impl<Custom> Error<Custom> {
+    pub(crate) fn from_internal(err: Error) -> Self {
+        match err {
+            Error::Read => Self::Read,
+            Error::Write => Self::Write,
+            Error::Timeout => Self::Timeout,
+            Error::InvalidResponse => Self::InvalidResponse,
+            Error::Aborted => Self::Aborted,
+            Error::Parse => Self::Parse,
+            Error::Error => Self::Error,
+            Error::CmeError(e) => Self::CmeError(e),
+            Error::CmsError(e) => Self::CmsError(e),
+            Error::ConnectionError(e) => Self::ConnectionError(e),
+            Error::Custom(_) => unreachable!("internal errors never use custom payloads"),
         }
     }
 }
@@ -188,6 +214,6 @@ mod tests {
             Error::ConnectionError(ConnectionError::NoAnswer).kind(),
             ErrorKind::TimedOut
         );
-        assert_eq!(Error::Custom.kind(), ErrorKind::Other);
+        assert_eq!(Error::Custom(NoCustomError).kind(), ErrorKind::Other);
     }
 }

@@ -10,6 +10,7 @@ pub struct ParseInput {
     pub ident: Ident,
     pub generics: Generics,
     pub at_cmd: Option<CmdAttributes>,
+    pub custom_error: Option<Path>,
     pub at_enum: Option<EnumAttributes>,
     pub variants: Vec<Variant>,
 }
@@ -430,12 +431,36 @@ impl Parse for ParseInput {
         let derive_input = DeriveInput::parse(input)?;
 
         let mut at_cmd = None;
+        let mut custom_error = None;
         let mut at_enum = None;
 
         // Parse valid container attributes
         for attr in derive_input.attrs {
             if attr.path().is_ident("at_cmd") {
                 at_cmd = Some(attr.parse_args()?);
+            } else if attr.path().is_ident("custom_error") {
+                custom_error = Some(match &attr.meta {
+                    syn::Meta::List(_) => attr.parse_args()?,
+                    syn::Meta::NameValue(name_value) => match &name_value.value {
+                        Expr::Path(ExprPath { path, .. }) => path.clone(),
+                        Expr::Lit(ExprLit {
+                            lit: Lit::Str(value),
+                            ..
+                        }) => value.parse()?,
+                        _ => {
+                            return Err(Error::new(
+                                Span::call_site(),
+                                "expected type path for `custom_error`",
+                            ))
+                        }
+                    },
+                    _ => {
+                        return Err(Error::new(
+                            Span::call_site(),
+                            "expected #[custom_error(Type)]",
+                        ))
+                    }
+                });
             } else if attr.path().is_ident("at_enum") {
                 at_enum = Some(EnumAttributes {
                     repr: attr.parse_args()?,
@@ -447,6 +472,7 @@ impl Parse for ParseInput {
             ident: derive_input.ident,
             generics: derive_input.generics,
             at_cmd,
+            custom_error,
             at_enum,
             variants: sorted_variants(derive_input.data)?,
         })

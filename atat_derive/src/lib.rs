@@ -173,6 +173,12 @@ pub fn derive_atat_enum(input: TokenStream) -> TokenStream {
 ///   passed functions needs to have a signature `Result<Response, E>` where
 ///   `Response` is the type of the response passed in the `at_cmd`
 ///
+/// ### Additional container attribute (`#[custom_error(Type)]`)
+/// Use `#[custom_error(Type)]` to override the generated
+/// `atat::AtatCmd::CustomError` associated type. When omitted, the derive macro
+/// uses `atat::NoCustomError`. The provided type must implement
+/// `core::error::Error`, `Clone`, `Eq`, and `From<&[u8]>`.
+///
 /// ### Field attribute (`#[at_arg(..)]`)
 /// The `AtatCmd` derive macro comes with an optional field attribute
 /// `#[at_arg(..)]`, that can be specified on some or all of the fields.
@@ -182,7 +188,7 @@ pub fn derive_atat_enum(input: TokenStream) -> TokenStream {
 ///   string. (eg. for command `AT+CMD=a,b`, field `a` would have `position = 1`
 ///   and field `b` would have `position = 2`) (defaults to order of the fields
 ///   in the struct)
-#[proc_macro_derive(AtatCmd, attributes(at_cmd, at_arg))]
+#[proc_macro_derive(AtatCmd, attributes(at_cmd, at_arg, custom_error))]
 pub fn derive_atat_cmd(input: TokenStream) -> TokenStream {
     cmd::atat_cmd(input)
 }

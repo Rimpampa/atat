@@ -5,7 +5,7 @@ use super::{blocking_timer::BlockingTimer, AtatClient};
 use crate::{
     helpers::LossyStr,
     response_slot::{ResponseSlot, ResponseSlotGuard},
-    AtatCmd, Config, Error, Response,
+    AtatCmd, CmdResult, Config, Error, Response,
 };
 
 /// Client responsible for handling send, receive and timeout from the
@@ -43,7 +43,7 @@ where
         }
     }
 
-    fn send_request(&mut self, len: usize) -> Result<(), Error> {
+    fn send_request<E>(&mut self, len: usize) -> Result<(), Error<E>> {
         if len < 50 {
             debug!("Sending command: {:?}", LossyStr(&self.buf[..len]));
         } else {
@@ -65,10 +65,10 @@ where
         Ok(())
     }
 
-    fn wait_response<'guard>(
+    fn wait_response<'guard, E>(
         &'guard mut self,
         timeout: Duration,
-    ) -> Result<ResponseSlotGuard<'guard, INGRESS_BUF_SIZE>, Error> {
+    ) -> Result<ResponseSlotGuard<'guard, INGRESS_BUF_SIZE>, Error<E>> {
         self.with_timeout(timeout, || self.res_slot.try_get())
             .map_err(|_| Error::Timeout)
     }
@@ -105,7 +105,7 @@ impl<W, const INGRESS_BUF_SIZE: usize> AtatClient for Client<'_, W, INGRESS_BUF_
 where
     W: Write,
 {
-    fn send<Cmd: AtatCmd>(&mut self, cmd: &Cmd) -> Result<Cmd::Response, Error> {
+    fn send<Cmd: AtatCmd>(&mut self, cmd: &Cmd) -> CmdResult<Cmd> {
         let len = cmd.write(self.buf);
         self.send_request(len)?;
         if !Cmd::EXPECTS_RESPONSE_CODE {

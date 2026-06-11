@@ -1,7 +1,7 @@
 use crate::proc_macro::TokenStream;
 
 use quote::{format_ident, quote};
-use syn::parse_macro_input;
+use syn::{parse_macro_input, parse_quote};
 
 use crate::parse::{CmdAttributes, ParseInput};
 
@@ -9,6 +9,7 @@ pub fn atat_cmd(input: TokenStream) -> TokenStream {
     let ParseInput {
         ident,
         at_cmd,
+        custom_error,
         generics,
         variants,
         ..
@@ -104,23 +105,24 @@ pub fn atat_cmd(input: TokenStream) -> TokenStream {
     };
 
     let ident_len = format_ident!("ATAT_{}_LEN", ident.to_string().to_uppercase());
+    let custom_error = custom_error.unwrap_or_else(|| parse_quote!(atat::NoCustomError));
 
     let parse = if let Some(parse) = parse {
         quote! {
-            #[inline]
-            fn parse(&self, res: Result<&[u8], atat::InternalError>) -> core::result::Result<Self::Response, atat::Error> {
-                match res {
-                    Ok(resp) => #parse(resp).map_err(|e| {
-                        atat::Error::Parse
-                    }),
-                    Err(e) => Err(e.into())
-                }
-            }
+           #[inline]
+           fn parse(&self, res: Result<&[u8], atat::InternalError>) -> atat::CmdResult<Self> {
+               match res {
+                   Ok(resp) => #parse(resp).map_err(|e| {
+                       atat::Error::Parse
+                   }),
+                   Err(e) => Err(e.into())
+               }
+           }
         }
     } else {
         quote! {
-            #[inline]
-           fn parse(&self, res: Result<&[u8], atat::InternalError>) -> core::result::Result<Self::Response, atat::Error> {
+           #[inline]
+           fn parse(&self, res: Result<&[u8], atat::InternalError>) -> atat::CmdResult<Self> {
                match res {
                    Ok(resp) => atat::serde_at::from_slice::<#resp>(resp).map_err(|e| {
                        atat::Error::Parse
@@ -143,6 +145,7 @@ pub fn atat_cmd(input: TokenStream) -> TokenStream {
         #[automatically_derived]
         impl #impl_generics atat::AtatCmd for #ident #ty_generics #where_clause {
             type Response = #resp;
+            type CustomError = #custom_error;
 
             const MAX_LEN: usize = { #ident_len + #cmd_len };
 
