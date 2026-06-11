@@ -7,66 +7,7 @@ pub use cms_error::CmsError;
 pub use connection_error::ConnectionError;
 use thiserror::Error;
 
-/// Errors returned used internally within the crate
-#[derive(Clone, Debug, PartialEq, Eq, Error)]
-pub enum InternalError<'a> {
-    /// Serial read error
-    #[error("Serial read error")]
-    Read,
-    /// Serial write error
-    #[error("Serial write error")]
-    Write,
-    /// Timed out while waiting for a response
-    #[error("Timed out while waiting for a response")]
-    Timeout,
-    /// Invalid response from module
-    #[error("Invalid response from module")]
-    InvalidResponse,
-    /// Command was aborted
-    #[error("Command was aborted")]
-    Aborted,
-    /// Failed to parse received response
-    #[error("Failed to parse received response")]
-    Parse,
-    /// Error response containing any error message
-    #[error("Generic error response")]
-    Error,
-    /// GSM Equipment related error
-    #[error("GSM Equipment related error")]
-    CmeError(CmeError),
-    /// GSM Network related error
-    #[error("GSM Network related error")]
-    CmsError(CmsError),
-    /// Connection Error
-    #[error("Connection Error")]
-    ConnectionError(ConnectionError),
-    /// Custom error match
-    #[error("Custom error match: {0:?}")]
-    Custom(&'a [u8]),
-}
-
-#[cfg(feature = "defmt")]
-impl<'a> defmt::Format for InternalError<'a> {
-    fn format(&self, f: defmt::Formatter) {
-        match self {
-            InternalError::Read => defmt::write!(f, "InternalError::Read"),
-            InternalError::Write => defmt::write!(f, "InternalError::Write"),
-            InternalError::Timeout => defmt::write!(f, "InternalError::Timeout"),
-            InternalError::InvalidResponse => defmt::write!(f, "InternalError::InvalidResponse"),
-            InternalError::Aborted => defmt::write!(f, "InternalError::Aborted"),
-            InternalError::Parse => defmt::write!(f, "InternalError::Parse"),
-            InternalError::Error => defmt::write!(f, "InternalError::Error"),
-            InternalError::CmeError(e) => defmt::write!(f, "InternalError::CmeError({:?})", e),
-            InternalError::CmsError(e) => defmt::write!(f, "InternalError::CmsError({:?})", e),
-            InternalError::ConnectionError(e) => {
-                defmt::write!(f, "InternalError::ConnectionError({:?})", e)
-            }
-            InternalError::Custom(e) => {
-                defmt::write!(f, "InternalError::Custom({=[u8]:a})", &e)
-            }
-        }
-    }
-}
+pub type InternalError<'a> = Error<&'a [u8]>;
 
 /// Errors returned by the crate
 #[derive(Clone, Debug, PartialEq, Eq, Error)]
@@ -126,27 +67,6 @@ impl embedded_io::Error for Error {
     }
 }
 
-impl<'a, Custom> From<InternalError<'a>> for Error<Custom>
-where
-    Custom: From<&'a [u8]>,
-{
-    fn from(ie: InternalError<'a>) -> Self {
-        match ie {
-            InternalError::Read => Self::Read,
-            InternalError::Write => Self::Write,
-            InternalError::Timeout => Self::Timeout,
-            InternalError::InvalidResponse => Self::InvalidResponse,
-            InternalError::Aborted => Self::Aborted,
-            InternalError::Parse => Self::Parse,
-            InternalError::Error => Self::Error,
-            InternalError::CmeError(e) => Self::CmeError(e),
-            InternalError::CmsError(e) => Self::CmsError(e),
-            InternalError::ConnectionError(e) => Self::ConnectionError(e),
-            InternalError::Custom(data) => Self::Custom(data.into()),
-        }
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, Error)]
 pub struct NoCustomError;
 
@@ -162,20 +82,20 @@ impl core::fmt::Display for NoCustomError {
     }
 }
 
-impl<Custom> Error<Custom> {
-    pub(crate) fn from_internal(err: Error) -> Self {
-        match err {
-            Error::Read => Self::Read,
-            Error::Write => Self::Write,
-            Error::Timeout => Self::Timeout,
-            Error::InvalidResponse => Self::InvalidResponse,
-            Error::Aborted => Self::Aborted,
-            Error::Parse => Self::Parse,
-            Error::Error => Self::Error,
-            Error::CmeError(e) => Self::CmeError(e),
-            Error::CmsError(e) => Self::CmsError(e),
-            Error::ConnectionError(e) => Self::ConnectionError(e),
-            Error::Custom(_) => unreachable!("internal errors never use custom payloads"),
+impl<'a> InternalError<'a> {
+    pub fn parse<C: From<&'a [u8]>>(self) -> Error<C> {
+        match self {
+            Self::Read => Error::Read,
+            Self::Write => Error::Write,
+            Self::Timeout => Error::Timeout,
+            Self::InvalidResponse => Error::InvalidResponse,
+            Self::Aborted => Error::Aborted,
+            Self::Parse => Error::Parse,
+            Self::Error => Error::Error,
+            Self::CmeError(e) => Error::CmeError(e),
+            Self::CmsError(e) => Error::CmsError(e),
+            Self::ConnectionError(e) => Error::ConnectionError(e),
+            Self::Custom(err) => Error::Custom(err.into()),
         }
     }
 }

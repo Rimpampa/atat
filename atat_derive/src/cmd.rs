@@ -115,7 +115,7 @@ pub fn atat_cmd(input: TokenStream) -> TokenStream {
                    Ok(resp) => #parse(resp).map_err(|e| {
                        atat::Error::Parse
                    }),
-                   Err(e) => Err(e.into())
+                   Err(e) => Err(e.parse())
                }
            }
         }
@@ -127,7 +127,7 @@ pub fn atat_cmd(input: TokenStream) -> TokenStream {
                    Ok(resp) => atat::serde_at::from_slice::<#resp>(resp).map_err(|e| {
                        atat::Error::Parse
                    }),
-                   Err(e) => Err(e.into())
+                   Err(e) => Err(e.parse())
                }
            }
         }

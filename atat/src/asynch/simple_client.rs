@@ -1,6 +1,7 @@
 use super::AtatClient;
 use crate::{
-    helpers::LossyStr, AtatCmd, CmdResult, Config, DigestResult, Digester, Error, Response,
+    helpers::LossyStr, AtatCmd, CmdResult, Config, DigestResult, Digester, Error, InternalError,
+    Response,
 };
 use embassy_time::{with_timeout, Duration, Timer};
 use embedded_io_async::{Read, Write};
@@ -50,7 +51,7 @@ impl<'a, RW: Read + Write, D: Digester> SimpleClient<'a, RW, D> {
         Ok(())
     }
 
-    async fn wait_response(&mut self) -> Result<Response<256>, Error> {
+    async fn wait_response(&mut self) -> Result<Response<256>, InternalError<'_>> {
         loop {
             match self.rw.read(&mut self.buf[self.pos..]).await {
                 Ok(n) => {
@@ -157,7 +158,7 @@ impl<RW: Read + Write, D: Digester> AtatClient for SimpleClient<'_, RW, D> {
             )
             .await
             .map_err(|_| Error::Timeout)?
-            .map_err(Error::from_internal)?;
+            .map_err(Error::parse)?;
 
             cmd.parse((&response).into())
         }

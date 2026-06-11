@@ -68,7 +68,7 @@ pub trait AtatCmd {
     /// The type of the response. Must implement the `AtatResp` trait.
     type Response: AtatResp;
 
-    type CustomError: core::error::Error + Clone + Eq;
+    type CustomError: core::error::Error + Clone + Eq + for<'a> From<&'a [u8]>;
 
     /// The size of the buffer required to write the request.
     const MAX_LEN: usize;
@@ -117,7 +117,7 @@ impl<const L: usize> AtatCmd for String<L> {
 
     fn parse(&self, resp: Result<&[u8], InternalError>) -> CmdResult<Self> {
         let utf8_string =
-            core::str::from_utf8(resp.map_err(Error::from)?).map_err(|_| Error::Parse)?;
+            core::str::from_utf8(resp.map_err(Error::parse)?).map_err(|_| Error::Parse)?;
         String::try_from(utf8_string).map_err(|_| Error::Parse)
     }
 }
