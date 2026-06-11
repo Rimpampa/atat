@@ -40,7 +40,7 @@
 //!     type Response = NoResponse;
 //!     const MAX_LEN: usize = 64;
 //!
-//!     fn write(&self, mut buf: &mut [u8]) -> ControlFlow<usize, usize> {
+//!     fn write(&mut self, mut buf: &mut [u8]) -> ControlFlow<usize, usize> {
 //!         let buf_len = buf.len();
 //!         use embedded_io::Write;
 //!         write!(buf, "AT+CSGT={}", self.text);
@@ -56,7 +56,7 @@
 //!     type Response = GreetingText;
 //!     const MAX_LEN: usize = 8;
 //!
-//!     fn write(&self, mut buf: &mut [u8]) -> ControlFlow<usize, usize> {
+//!     fn write(&mut self, mut buf: &mut [u8]) -> ControlFlow<usize, usize> {
 //!         let cmd = b"AT+CSGT?";
 //!         let len = cmd.len();
 //!         buf[..len].copy_from_slice(cmd);

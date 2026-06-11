@@ -26,7 +26,7 @@ impl<'a, RW: Read + Write, D: Digester> SimpleClient<'a, RW, D> {
         }
     }
 
-    async fn send_cmd<Cmd: AtatCmd>(&mut self, cmd: &Cmd) -> Result<(), Error> {
+    async fn send_cmd<Cmd: AtatCmd>(&mut self, cmd: &mut Cmd) -> Result<(), Error> {
         self.wait_cooldown_timer().await;
 
         for step in 0.. {
@@ -159,7 +159,7 @@ impl<'a, RW: Read + Write, D: Digester> SimpleClient<'a, RW, D> {
 }
 
 impl<RW: Read + Write, D: Digester> AtatClient for SimpleClient<'_, RW, D> {
-    async fn send<Cmd: AtatCmd>(&mut self, cmd: &Cmd) -> Result<Cmd::Response, Error> {
+    async fn send<Cmd: AtatCmd>(&mut self, cmd: &mut Cmd) -> Result<Cmd::Response, Error> {
         self.send_cmd(cmd).await?;
         if !Cmd::EXPECTS_RESPONSE_CODE {
             cmd.parse(Ok(&[]))

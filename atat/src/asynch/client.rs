@@ -44,7 +44,7 @@ impl<W: Write, const INGRESS_BUF_SIZE: usize> ErrorType for Client<'_, W, INGRES
 }
 
 impl<'a, W: Write, const INGRESS_BUF_SIZE: usize> Client<'a, W, INGRESS_BUF_SIZE> {
-    async fn send_cmd<Cmd: AtatCmd>(&mut self, cmd: &Cmd) -> Result<(), Error> {
+    async fn send_cmd<Cmd: AtatCmd>(&mut self, cmd: &mut Cmd) -> Result<(), Error> {
         self.wait_cooldown_timer().await;
 
         // Clear any pending response signal
@@ -135,7 +135,7 @@ impl<'a, W: Write, const INGRESS_BUF_SIZE: usize> Client<'a, W, INGRESS_BUF_SIZE
 }
 
 impl<W: Write, const INGRESS_BUF_SIZE: usize> AtatClient for Client<'_, W, INGRESS_BUF_SIZE> {
-    async fn send<Cmd: AtatCmd>(&mut self, cmd: &Cmd) -> Result<Cmd::Response, Error> {
+    async fn send<Cmd: AtatCmd>(&mut self, cmd: &mut Cmd) -> Result<Cmd::Response, Error> {
         self.send_cmd(cmd).await?;
         if !Cmd::EXPECTS_RESPONSE_CODE {
             cmd.parse(Ok(&[]))
@@ -235,7 +235,7 @@ mod tests {
         let (mut client, mut tx, _slot) =
             setup!(Config::new().get_response_timeout(custom_response_timeout));
 
-        let cmd = SetModuleFunctionality {
+        let mut cmd = SetModuleFunctionality {
             fun: Functionality::APM,
             rst: Some(ResetMode::DontReset),
         };
@@ -246,7 +246,7 @@ mod tests {
         });
 
         let send = tokio::spawn(async move {
-            assert_eq!(Err(Error::Timeout), client.send(&cmd).await);
+            assert_eq!(Err(Error::Timeout), client.send(&mut cmd).await);
         });
 
         let (sent, send) = join!(sent, send);
@@ -281,7 +281,7 @@ mod tests {
         let (mut client, mut tx, slot) =
             setup!(Config::new().get_response_timeout(custom_response_timeout));
 
-        let cmd = SetModuleFunctionality {
+        let mut cmd = SetModuleFunctionality {
             fun: Functionality::APM,
             rst: Some(ResetMode::DontReset),
         };
@@ -294,7 +294,7 @@ mod tests {
         });
 
         let send = tokio::spawn(async move {
-            assert_eq!(Ok(NoResponse), client.send(&cmd).await);
+            assert_eq!(Ok(NoResponse), client.send(&mut cmd).await);
         });
 
         let (sent, send) = join!(sent, send);

@@ -45,7 +45,7 @@ where
         }
     }
 
-    fn send_cmd<Cmd: AtatCmd>(&mut self, cmd: &Cmd) -> Result<(), Error> {
+    fn send_cmd<Cmd: AtatCmd>(&mut self, cmd: &mut Cmd) -> Result<(), Error> {
         self.wait_cooldown_timer();
 
         // Clear any pending response signal
@@ -122,7 +122,7 @@ impl<W, const INGRESS_BUF_SIZE: usize> AtatClient for Client<'_, W, INGRESS_BUF_
 where
     W: Write,
 {
-    fn send<Cmd: AtatCmd>(&mut self, cmd: &Cmd) -> Result<Cmd::Response, Error> {
+    fn send<Cmd: AtatCmd>(&mut self, cmd: &mut Cmd) -> Result<Cmd::Response, Error> {
         self.send_cmd(cmd)?;
         if !Cmd::EXPECTS_RESPONSE_CODE {
             cmd.parse(Ok(&[]))
@@ -294,7 +294,7 @@ mod test {
     async fn error_response() {
         let (mut client, mut tx, rx) = setup!(Config::new());
 
-        let cmd = ErrorTester { x: 7 };
+        let mut cmd = ErrorTester { x: 7 };
 
         let sent = tokio::spawn(async move {
             tx.next_message_pure().await;
@@ -302,7 +302,7 @@ mod test {
         });
 
         tokio::task::spawn_blocking(move || {
-            assert_eq!(Err(Error::Error), client.send(&cmd));
+            assert_eq!(Err(Error::Error), client.send(&mut cmd));
         })
         .await
         .unwrap();
@@ -314,7 +314,7 @@ mod test {
     async fn generic_error_response() {
         let (mut client, mut tx, rx) = setup!(Config::new());
 
-        let cmd = SetModuleFunctionality {
+        let mut cmd = SetModuleFunctionality {
             fun: Functionality::APM,
             rst: Some(ResetMode::DontReset),
         };
@@ -325,7 +325,7 @@ mod test {
         });
 
         tokio::task::spawn_blocking(move || {
-            assert_eq!(Err(Error::Error), client.send(&cmd));
+            assert_eq!(Err(Error::Error), client.send(&mut cmd));
         })
         .await
         .unwrap();
@@ -337,12 +337,12 @@ mod test {
     async fn string_sent() {
         let (mut client, mut tx, rx) = setup!(Config::new());
 
-        let cmd0 = SetModuleFunctionality {
+        let mut cmd0 = SetModuleFunctionality {
             fun: Functionality::APM,
             rst: Some(ResetMode::DontReset),
         };
 
-        let cmd1 = Test2Cmd {
+        let mut cmd1 = Test2Cmd {
             fun: Functionality::DM,
             rst: Some(ResetMode::Reset),
         };
@@ -358,8 +358,8 @@ mod test {
         });
 
         tokio::task::spawn_blocking(move || {
-            assert_eq!(client.send(&cmd0), Ok(NoResponse));
-            assert_eq!(client.send(&cmd1), Ok(NoResponse));
+            assert_eq!(client.send(&mut cmd0), Ok(NoResponse));
+            assert_eq!(client.send(&mut cmd1), Ok(NoResponse));
         })
         .await
         .unwrap();
@@ -373,7 +373,7 @@ mod test {
     async fn blocking() {
         let (mut client, mut tx, rx) = setup!(Config::new());
 
-        let cmd = SetModuleFunctionality {
+        let mut cmd = SetModuleFunctionality {
             fun: Functionality::APM,
             rst: Some(ResetMode::DontReset),
         };
@@ -385,7 +385,7 @@ mod test {
         });
 
         tokio::task::spawn_blocking(move || {
-            assert_eq!(client.send(&cmd), Ok(NoResponse));
+            assert_eq!(client.send(&mut cmd), Ok(NoResponse));
         })
         .await
         .unwrap();
@@ -400,14 +400,14 @@ mod test {
         let (mut client, mut tx, rx) = setup!(Config::new());
 
         // String last
-        let cmd0 = TestRespStringCmd {
+        let mut cmd0 = TestRespStringCmd {
             fun: Functionality::APM,
             rst: Some(ResetMode::DontReset),
         };
         let response0 = b"+CUN: 22,16,\"0123456789012345\"";
 
         // Mixed order for string
-        let cmd1 = TestRespStringMixCmd {
+        let mut cmd1 = TestRespStringMixCmd {
             fun: Functionality::APM,
             rst: Some(ResetMode::DontReset),
         };
@@ -430,7 +430,7 @@ mod test {
                     length: 16,
                     data: String::<64>::try_from("0123456789012345").unwrap()
                 }),
-                client.send(&cmd0),
+                client.send(&mut cmd0),
             );
             assert_eq!(
                 Ok(TestResponseStringMixed {
@@ -438,7 +438,7 @@ mod test {
                     length: 16,
                     data: String::<64>::try_from("0123456789012345").unwrap()
                 }),
-                client.send(&cmd1),
+                client.send(&mut cmd1),
             );
         })
         .await
@@ -465,7 +465,7 @@ mod test {
         let (mut client, mut tx, _rx) =
             setup!(Config::new().get_response_timeout(custom_response_timeout));
 
-        let cmd = SetModuleFunctionality {
+        let mut cmd = SetModuleFunctionality {
             fun: Functionality::APM,
             rst: Some(ResetMode::DontReset),
         };
@@ -476,7 +476,7 @@ mod test {
         });
 
         tokio::task::spawn_blocking(move || {
-            assert_eq!(Err(Error::Timeout), client.send(&cmd));
+            assert_eq!(Err(Error::Timeout), client.send(&mut cmd));
         })
         .await
         .unwrap();
@@ -511,7 +511,7 @@ mod test {
         let (mut client, mut tx, rx) =
             setup!(Config::new().get_response_timeout(custom_response_timeout));
 
-        let cmd = SetModuleFunctionality {
+        let mut cmd = SetModuleFunctionality {
             fun: Functionality::APM,
             rst: Some(ResetMode::DontReset),
         };
@@ -524,7 +524,7 @@ mod test {
         });
 
         tokio::task::spawn_blocking(move || {
-            assert_eq!(Ok(NoResponse), client.send(&cmd));
+            assert_eq!(Ok(NoResponse), client.send(&mut cmd));
         })
         .await
         .unwrap();
@@ -539,14 +539,14 @@ mod test {
     //     let timeout = Duration::from_millis(20);
     //     let (mut client, mut p) = setup!(Config::new().tx_timeout(1));
 
-    //     let cmd = SetModuleFunctionality {
+    //     let mut cmd = SetModuleFunctionality {
     //         fun: Functionality::APM,
     //         rst: Some(ResetMode::DontReset),
     //     };
 
     //     p.try_enqueue(Frame::default()).unwrap();
 
-    //     assert_eq!(client.send(&cmd), Err(Error::Timeout));
+    //     assert_eq!(client.send(&mut cmd), Err(Error::Timeout));
     // }
 
     // #[test]
@@ -554,13 +554,13 @@ mod test {
     //     let timeout = Duration::from_millis(20);
     //     let (mut client, mut p) = setup!(Config::new().flush_timeout(1));
 
-    //     let cmd = SetModuleFunctionality {
+    //     let mut cmd = SetModuleFunctionality {
     //         fun: Functionality::APM,
     //         rst: Some(ResetMode::DontReset),
     //     };
 
     //     p.try_enqueue(Frame::default()).unwrap();
 
-    //     assert_eq!(client.send(&cmd), Err(Error::Timeout));
+    //     assert_eq!(client.send(&mut cmd), Err(Error::Timeout));
     // }
 }
