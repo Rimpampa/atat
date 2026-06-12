@@ -2,7 +2,7 @@ use super::AtatClient;
 use crate::{
     helpers::LossyStr,
     response_slot::{ResponseSlot, ResponseSlotGuard},
-    AtatCmd, CmdResult, Config, Error, Response,
+    AtatCmd, CmdResult, Config, Error, NoCustomError, Response,
 };
 use embassy_time::{with_timeout, Duration, Instant, TimeoutError, Timer};
 use embedded_io::ErrorType;
@@ -12,18 +12,18 @@ use futures::{
     pin_mut, Future,
 };
 
-pub struct Client<'a, W: Write, const INGRESS_BUF_SIZE: usize> {
+pub struct Client<'a, W: Write, const INGRESS_BUF_SIZE: usize, E = NoCustomError> {
     writer: W,
-    res_slot: &'a ResponseSlot<INGRESS_BUF_SIZE>,
+    res_slot: &'a ResponseSlot<INGRESS_BUF_SIZE, E>,
     buf: &'a mut [u8],
     config: Config,
     cooldown_timer: Option<Timer>,
 }
 
-impl<'a, W: Write, const INGRESS_BUF_SIZE: usize> Client<'a, W, INGRESS_BUF_SIZE> {
+impl<'a, W: Write, const INGRESS_BUF_SIZE: usize, E> Client<'a, W, INGRESS_BUF_SIZE, E> {
     pub fn new(
         writer: W,
-        res_slot: &'a ResponseSlot<INGRESS_BUF_SIZE>,
+        res_slot: &'a ResponseSlot<INGRESS_BUF_SIZE, E>,
         buf: &'a mut [u8],
         config: Config,
     ) -> Self {
@@ -37,12 +37,14 @@ impl<'a, W: Write, const INGRESS_BUF_SIZE: usize> Client<'a, W, INGRESS_BUF_SIZE
     }
 }
 
-impl<W: Write, const INGRESS_BUF_SIZE: usize> ErrorType for Client<'_, W, INGRESS_BUF_SIZE> {
-    type Error = Error;
+impl<W: Write, const INGRESS_BUF_SIZE: usize, E: core::fmt::Debug> ErrorType
+    for Client<'_, W, INGRESS_BUF_SIZE, E>
+{
+    type Error = Error<E>;
 }
 
-impl<'a, W: Write, const INGRESS_BUF_SIZE: usize> Client<'a, W, INGRESS_BUF_SIZE> {
-    async fn send_request<E>(&mut self, len: usize) -> Result<(), Error<E>> {
+impl<'a, W: Write, const INGRESS_BUF_SIZE: usize, E> Client<'a, W, INGRESS_BUF_SIZE, E> {
+    async fn send_request(&mut self, len: usize) -> Result<(), Error<E>> {
         if len < 50 {
             debug!("Sending command: {:?}", LossyStr(&self.buf[..len]));
         } else {
@@ -72,10 +74,10 @@ impl<'a, W: Write, const INGRESS_BUF_SIZE: usize> Client<'a, W, INGRESS_BUF_SIZE
         Ok(())
     }
 
-    async fn wait_response<'guard, E>(
+    async fn wait_response<'guard>(
         &'guard mut self,
         timeout: Duration,
-    ) -> Result<ResponseSlotGuard<'guard, INGRESS_BUF_SIZE>, Error<E>> {
+    ) -> Result<ResponseSlotGuard<'guard, INGRESS_BUF_SIZE, E>, Error<E>> {
         self.with_timeout(timeout, self.res_slot.get())
             .await
             .map_err(|_| Error::Timeout)
@@ -117,8 +119,12 @@ impl<'a, W: Write, const INGRESS_BUF_SIZE: usize> Client<'a, W, INGRESS_BUF_SIZE
     }
 }
 
-impl<W: Write, const INGRESS_BUF_SIZE: usize> AtatClient for Client<'_, W, INGRESS_BUF_SIZE> {
-    async fn send<Cmd: AtatCmd>(&mut self, cmd: &Cmd) -> CmdResult<Cmd> {
+impl<W: Write, const INGRESS_BUF_SIZE: usize, E, Cmd> AtatClient<Cmd>
+    for Client<'_, W, INGRESS_BUF_SIZE, E>
+where
+    Cmd: AtatCmd<CustomError = E>,
+{
+    async fn send(&mut self, cmd: &Cmd) -> CmdResult<Cmd> {
         let len = cmd.write(self.buf);
         self.send_request(len).await?;
         if !Cmd::EXPECTS_RESPONSE_CODE {
@@ -127,7 +133,7 @@ impl<W: Write, const INGRESS_BUF_SIZE: usize> AtatClient for Client<'_, W, INGRE
             let response = self
                 .wait_response(Duration::from_millis(Cmd::MAX_TIMEOUT_MS.into()))
                 .await?;
-            let response: &Response<INGRESS_BUF_SIZE> = &response.borrow();
+            let response: &Response<INGRESS_BUF_SIZE, E> = &response.borrow();
             cmd.parse(response.into())
         }
     }

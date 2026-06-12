@@ -1,5 +1,5 @@
 use crate::{
-    error::{Error, InternalError, NoCustomError},
+    error::{Error, NoCustomError},
     CmdResult,
 };
 use heapless::{String, Vec};
@@ -96,7 +96,7 @@ pub trait AtatCmd {
     fn write(&self, buf: &mut [u8]) -> usize;
 
     /// Parse the response into a `Self::Response` or `Error` instance.
-    fn parse(&self, resp: Result<&[u8], InternalError>) -> CmdResult<Self>;
+    fn parse(&self, resp: Result<&[u8], &Error<Self::CustomError>>) -> CmdResult<Self>;
 }
 
 impl<T, const L: usize> AtatResp for Vec<T, L> where T: AtatResp {}
@@ -115,9 +115,8 @@ impl<const L: usize> AtatCmd for String<L> {
         len
     }
 
-    fn parse(&self, resp: Result<&[u8], InternalError>) -> CmdResult<Self> {
-        let utf8_string =
-            core::str::from_utf8(resp.map_err(Error::parse)?).map_err(|_| Error::Parse)?;
+    fn parse(&self, resp: Result<&[u8], &Error>) -> CmdResult<Self> {
+        let utf8_string = core::str::from_utf8(resp?).map_err(|_| Error::Parse)?;
         String::try_from(utf8_string).map_err(|_| Error::Parse)
     }
 }

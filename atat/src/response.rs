@@ -1,36 +1,28 @@
-use crate::InternalError;
+use crate::{Error, InternalError, NoCustomError};
 use heapless::Vec;
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Response<const N: usize> {
+pub enum Response<const N: usize, E = NoCustomError> {
     Ok(Vec<u8, N>),
     Prompt(u8),
-    ReadError,
-    WriteError,
-    TimeoutError,
-    InvalidResponseError,
-    AbortedError,
-    ParseError,
-    OtherError,
-    CmeError(u16),
-    CmsError(u16),
-    ConnectionError(u8),
-    CustomError(Vec<u8, N>),
+    Error(Error<E>),
 }
 
-impl<const N: usize> Response<N> {
+impl<const N: usize, E> Response<N, E> {
     pub fn ok(value: &[u8]) -> Self {
         Response::Ok(Vec::from_slice(value).unwrap())
     }
 }
 
-impl<const N: usize> Default for Response<N> {
+impl<const N: usize, E> Default for Response<N, E> {
     fn default() -> Self {
         Response::Ok(Vec::new())
     }
 }
 
-impl<'a, const N: usize> From<Result<&'a [u8], InternalError<'a>>> for Response<N> {
+impl<'a, const N: usize, E: From<&'a [u8]>> From<Result<&'a [u8], InternalError<'a>>>
+    for Response<N, E>
+{
     fn from(value: Result<&'a [u8], InternalError<'a>>) -> Self {
         match value {
             Ok(slice) => Response::Ok(Vec::from_slice(slice).unwrap()),
@@ -39,40 +31,20 @@ impl<'a, const N: usize> From<Result<&'a [u8], InternalError<'a>>> for Response<
     }
 }
 
-impl<'a, const N: usize> From<InternalError<'a>> for Response<N> {
+impl<'a, const N: usize, E: From<&'a [u8]>> From<InternalError<'a>> for Response<N, E> {
     fn from(v: InternalError<'a>) -> Self {
-        match v {
-            InternalError::Read => Response::ReadError,
-            InternalError::Write => Response::WriteError,
-            InternalError::Timeout => Response::TimeoutError,
-            InternalError::InvalidResponse => Response::InvalidResponseError,
-            InternalError::Aborted => Response::AbortedError,
-            InternalError::Parse => Response::ParseError,
-            InternalError::Error => Response::OtherError,
-            InternalError::CmeError(e) => Response::CmeError(e as u16),
-            InternalError::CmsError(e) => Response::CmsError(e as u16),
-            InternalError::ConnectionError(e) => Response::ConnectionError(e as u8),
-            InternalError::Custom(e) => Response::CustomError(Vec::from_slice(e).unwrap()),
-        }
+        Response::Error(v.parse())
     }
 }
 
-impl<'a, const N: usize> From<&'a Response<N>> for Result<&'a [u8], InternalError<'a>> {
-    fn from(value: &'a Response<N>) -> Self {
+impl<'a, const N: usize, E: From<&'a [u8]>> From<&'a Response<N, E>>
+    for Result<&'a [u8], &'a Error<E>>
+{
+    fn from(value: &'a Response<N, E>) -> Self {
         match value {
             Response::Ok(slice) => Ok(slice),
             Response::Prompt(_) => Ok(&[]),
-            Response::ReadError => Err(InternalError::Read),
-            Response::WriteError => Err(InternalError::Write),
-            Response::TimeoutError => Err(InternalError::Timeout),
-            Response::InvalidResponseError => Err(InternalError::InvalidResponse),
-            Response::AbortedError => Err(InternalError::Aborted),
-            Response::ParseError => Err(InternalError::Parse),
-            Response::OtherError => Err(InternalError::Error),
-            Response::CmeError(e) => Err(InternalError::CmeError((*e).into())),
-            Response::CmsError(e) => Err(InternalError::CmsError((*e).into())),
-            Response::ConnectionError(e) => Err(InternalError::ConnectionError((*e).into())),
-            Response::CustomError(e) => Err(InternalError::Custom(e)),
+            Response::Error(e) => Err(e),
         }
     }
 }

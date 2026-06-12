@@ -6,26 +6,26 @@ use embassy_sync::{
 };
 use heapless::Vec;
 
-use crate::{InternalError, Response};
+use crate::{InternalError, NoCustomError, Response};
 
-pub struct ResponseSlot<const N: usize>(
-    Mutex<CriticalSectionRawMutex, RefCell<Response<N>>>,
+pub struct ResponseSlot<const N: usize, E = NoCustomError>(
+    Mutex<CriticalSectionRawMutex, RefCell<Response<N, E>>>,
     Signal<CriticalSectionRawMutex, ()>,
 );
 
-pub type ResponseSlotGuard<'a, const N: usize> =
-    MutexGuard<'a, CriticalSectionRawMutex, RefCell<Response<N>>>;
+pub type ResponseSlotGuard<'a, const N: usize, E = NoCustomError> =
+    MutexGuard<'a, CriticalSectionRawMutex, RefCell<Response<N, E>>>;
 
 #[derive(Debug)]
 pub struct SlotInUseError;
 
-impl<const N: usize> Default for ResponseSlot<N> {
+impl<const N: usize, E> Default for ResponseSlot<N, E> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<const N: usize> ResponseSlot<N> {
+impl<const N: usize, E> ResponseSlot<N, E> {
     pub const fn new() -> Self {
         Self(
             Mutex::new(RefCell::new(Response::Ok(Vec::new()))),
@@ -39,7 +39,7 @@ impl<const N: usize> ResponseSlot<N> {
     }
 
     /// Wait for a response to be signaled and get a guard to the response
-    pub async fn get<'a>(&'a self) -> ResponseSlotGuard<'a, N> {
+    pub async fn get<'a>(&'a self) -> ResponseSlotGuard<'a, N, E> {
         self.1.wait().await;
 
         // The mutex is not locked when signal is emitted
@@ -47,7 +47,7 @@ impl<const N: usize> ResponseSlot<N> {
     }
 
     /// If signaled, get a guard to the response
-    pub fn try_get<'a>(&'a self) -> Option<ResponseSlotGuard<'a, N>> {
+    pub fn try_get<'a>(&'a self) -> Option<ResponseSlotGuard<'a, N, E>> {
         if self.1.signaled() {
             // The mutex is not locked when signal is emitted
             Some(self.0.try_lock().unwrap())
@@ -73,10 +73,13 @@ impl<const N: usize> ResponseSlot<N> {
         Ok(())
     }
 
-    pub(crate) fn signal_response(
+    pub(crate) fn signal_response<'a>(
         &self,
-        response: Result<&[u8], InternalError>,
-    ) -> Result<(), SlotInUseError> {
+        response: Result<&'a [u8], InternalError<'a>>,
+    ) -> Result<(), SlotInUseError>
+    where
+        E: From<&'a [u8]>,
+    {
         if self.1.signaled() {
             return Err(SlotInUseError);
         }
