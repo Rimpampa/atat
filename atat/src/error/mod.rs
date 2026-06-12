@@ -48,7 +48,7 @@ pub enum Error<Custom = NoCustomError> {
     Custom(Custom),
 }
 
-impl embedded_io::Error for Error {
+impl<E: core::fmt::Debug> embedded_io::Error for Error<E> {
     fn kind(&self) -> embedded_io::ErrorKind {
         match self {
             Self::Timeout => embedded_io::ErrorKind::TimedOut,
