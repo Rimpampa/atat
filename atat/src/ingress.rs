@@ -88,7 +88,7 @@ pub trait AtatIngress {
                     }
                 }
                 Err(e) => {
-                    error!("Got serial read error {:?}", e.kind());
+                    error!("Got serial read error {:?}", defmt::Debug2Format(&e.kind()));
                     self.clear();
                 }
             }

@@ -3,7 +3,7 @@ resolver = "2"
 members = ["serde_at", "atat_derive", "atat", "examples"]
 
 [workspace.dependencies]
-heapless = "0.9"
+heapless = "0.8"
 heapless-bytes = "0.5"
 
 # cargo build/run
@@ -43,4 +43,3 @@ incremental = false
 lto = 'fat'
 opt-level = "s"          # <-
 overflow-checks = false  # <-
-

@@ -18,10 +18,10 @@ maintenance = { status = "actively-developed" }
 name = "atat"
 
 [dependencies]
-embedded-io = "0.7.1"
-embedded-io-async = "0.7.0"
+embedded-io = "0.6.1"
+embedded-io-async = "0.6"
 futures = { version = "0.3", default-features = false }
-embassy-sync = "0.8.0"
+embassy-sync = "0.7.2"
 embassy-time = "0.5.1"
 embassy-futures = "0.1"
 heapless = { workspace = true, features = ["serde"] }
@@ -48,7 +48,7 @@ static_cell = { version = "2.0.0" }
 
 [features]
 default = ["derive", "bytes"]
-defmt = ["dep:defmt", "embedded-io-async/defmt", "heapless/defmt", "serde_at/defmt", "embassy-time/defmt"]
+defmt = ["dep:defmt", "serde_at/defmt", "embassy-time/defmt"]
 derive = ["atat_derive", "serde_at"]
 bytes = ["heapless-bytes", "serde_bytes"]
 custom-error-messages = []
