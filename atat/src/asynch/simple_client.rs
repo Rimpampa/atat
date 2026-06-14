@@ -1,5 +1,7 @@
 use super::AtatClient;
-use crate::{helpers::LossyStr, AtatCmd, Config, DigestResult, Digester, Error, Response};
+use crate::{
+    helpers::LossyStr, AtatCmd, Config, DigestResult, Digester, Error, InternalError, Response,
+};
 use embassy_time::{with_timeout, Duration, Timer};
 use embedded_io_async::{Read, Write};
 
@@ -27,6 +29,14 @@ impl<'a, RW: Read + Write, D: Digester> SimpleClient<'a, RW, D> {
     /// Returns a mutable reference to the inner reader/writer.
     pub fn inner(&mut self) -> &mut RW {
         &mut self.rw
+    }
+
+    pub async fn wait_and_parse_response<O>(
+        &mut self,
+        parse: impl FnOnce(Result<&[u8], InternalError>) -> O,
+    ) -> Result<O, Error> {
+        let res = self.wait_response().await?;
+        Ok(parse((&res).into()))
     }
 
     async fn send_request(&mut self, len: usize) -> Result<(), Error> {

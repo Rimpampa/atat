@@ -5,7 +5,7 @@ use super::{blocking_timer::BlockingTimer, AtatClient};
 use crate::{
     helpers::LossyStr,
     response_slot::{ResponseSlot, ResponseSlotGuard},
-    AtatCmd, Config, Error,
+    AtatCmd, Config, Error, InternalError,
 };
 
 /// Client responsible for handling send, receive and timeout from the
@@ -46,6 +46,15 @@ where
     /// Returns a mutable reference to the inner writer.
     pub fn inner(&mut self) -> &mut W {
         &mut self.writer
+    }
+
+    pub fn wait_and_parse_response<O>(
+        &mut self,
+        duration: Duration,
+        parse: impl FnOnce(Result<&[u8], InternalError>) -> O,
+    ) -> Result<O, Error> {
+        let res = self.wait_response(duration)?;
+        Ok(parse((&*res).into()))
     }
 
     fn send_request(&mut self, len: usize) -> Result<(), Error> {

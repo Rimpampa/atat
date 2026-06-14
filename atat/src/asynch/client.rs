@@ -2,7 +2,7 @@ use super::AtatClient;
 use crate::{
     helpers::LossyStr,
     response_slot::{ResponseSlot, ResponseSlotGuard},
-    AtatCmd, Config, Error,
+    AtatCmd, Config, Error, InternalError,
 };
 use embassy_time::{with_timeout, Duration, Instant, TimeoutError, Timer};
 use embedded_io::ErrorType;
@@ -39,6 +39,15 @@ impl<'a, W: Write, const INGRESS_BUF_SIZE: usize> Client<'a, W, INGRESS_BUF_SIZE
     /// Returns a mutable reference to the inner writer.
     pub fn inner(&mut self) -> &mut W {
         &mut self.writer
+    }
+
+    pub async fn wait_and_parse_response<O>(
+        &mut self,
+        duration: Duration,
+        parse: impl FnOnce(Result<&[u8], InternalError>) -> O,
+    ) -> Result<O, Error> {
+        let res = self.wait_response(duration).await?;
+        Ok(parse((&*res).into()))
     }
 }
 
