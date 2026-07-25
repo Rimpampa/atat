@@ -30,19 +30,20 @@ impl<'a, RW: Read + Write, D: Digester> SimpleClient<'a, RW, D> {
     }
 
     async fn send_request(&mut self, len: usize) -> Result<(), Error> {
-        if len < 50 {
-            debug!("Sending command: {:?}", LossyStr(&self.buf[..len]));
-        } else {
-            debug!("Sending command with long payload ({} bytes)", len);
+        if len > 0 {
+            if len < 50 {
+                debug!("Sending command: {:?}", LossyStr(&self.buf[..len]));
+            } else {
+                debug!("Sending command with long payload ({} bytes)", len);
+            }
+            self.wait_cooldown_timer().await;
+
+            // Write request
+            with_timeout(self.config.tx_timeout, self.rw.write_all(&self.buf[..len]))
+                .await
+                .map_err(|_| Error::Timeout)?
+                .map_err(|_| Error::Write)?;
         }
-
-        self.wait_cooldown_timer().await;
-
-        // Write request
-        with_timeout(self.config.tx_timeout, self.rw.write_all(&self.buf[..len]))
-            .await
-            .map_err(|_| Error::Timeout)?
-            .map_err(|_| Error::Write)?;
 
         with_timeout(self.config.flush_timeout, self.rw.flush())
             .await
