@@ -47,6 +47,48 @@ impl<W: Write, const INGRESS_BUF_SIZE: usize> ErrorType for Client<'_, W, INGRES
 }
 
 impl<'a, W: Write, const INGRESS_BUF_SIZE: usize> Client<'a, W, INGRESS_BUF_SIZE> {
+    /// Send an AT command by manually writing the payload.
+    ///
+    /// The `Cmd` [`AtatCmd`] is used to determine the response type and the other
+    /// configuration options encoded in the associated constants, [`AtatCmd::write`]
+    /// is never called.
+    ///
+    /// This function will also make sure that at least `self.config.cmd_cooldown`
+    /// has passed since the last response or URC has been received, to allow
+    /// the slave AT device time to deliver URC's.
+    pub async fn manual_send<Cmd: AtatCmd>(
+        &mut self,
+        cmd: &Cmd,
+        write: impl AsyncFnOnce(&mut W) -> Result<(), Error>,
+    ) -> Result<Cmd::Response, Error> {
+        self.wait_cooldown_timer().await;
+
+        // Clear any pending response signal
+        self.res_slot.reset();
+
+        // Write request
+        with_timeout(self.config.tx_timeout, write(&mut self.writer))
+            .await
+            .map_err(|_| Error::Timeout)?
+            .map_err(|_| Error::Write)?;
+
+        with_timeout(self.config.flush_timeout, self.writer.flush())
+            .await
+            .map_err(|_| Error::Timeout)?
+            .map_err(|_| Error::Write)?;
+
+        self.start_cooldown_timer();
+
+        if !Cmd::EXPECTS_RESPONSE_CODE {
+            cmd.parse(Ok(&[]))
+        } else {
+            let response = self
+                .wait_response(Duration::from_millis(Cmd::MAX_TIMEOUT_MS.into()))
+                .await?;
+            cmd.parse((&*response).into())
+        }
+    }
+
     async fn send_request(&mut self, len: usize) -> Result<(), Error> {
         if len < 50 {
             debug!("Sending command: {:?}", LossyStr(&self.buf[..len]));
@@ -284,6 +326,18 @@ mod tests {
 
         let send = tokio::spawn(async move {
             assert_eq!(Ok(NoResponse), client.send(&cmd).await);
+
+            let buf = [0u8; 1000];
+            let len = cmd.write(&mut buf);
+            assert_eq!(
+                Ok(NoResponse),
+                client
+                    .manual_send(&cmd, async |w| w
+                        .write_all(&buf[..len])
+                        .await
+                        .or(Err(Error::Write)))
+                    .await
+            );
         });
 
         let (sent, send) = join!(sent, send);
