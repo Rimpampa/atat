@@ -45,6 +45,7 @@ where
 
     /// Returns a mutable reference to the inner writer.
     pub fn inner(&mut self) -> &mut W {
+        self.res_slot.reset();
         self.wait_cooldown_timer();
         &mut self.writer
     }
