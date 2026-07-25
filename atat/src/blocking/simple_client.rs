@@ -26,6 +26,7 @@ impl<'a, RW: Read + Write + ReadReady + WriteReady, D: Digester> SimpleClient<'a
 
     /// Returns a mutable reference to the inner reader/writer.
     pub fn inner(&mut self) -> &mut RW {
+        self.wait_cooldown_timer();
         &mut self.rw
     }
 

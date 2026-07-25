@@ -37,7 +37,8 @@ impl<'a, W: Write, const INGRESS_BUF_SIZE: usize> Client<'a, W, INGRESS_BUF_SIZE
     }
 
     /// Returns a mutable reference to the inner writer.
-    pub fn inner(&mut self) -> &mut W {
+    pub async fn inner(&mut self) -> &mut W {
+        self.wait_cooldown_timer().await;
         &mut self.writer
     }
 }
