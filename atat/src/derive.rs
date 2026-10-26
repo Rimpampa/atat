@@ -210,4 +210,28 @@ mod tests {
             Ok(CustomResponseParse { arg1: 123 })
         );
     }
+    fn deserialize_plus_one<'de, D>(deserializer: D) -> Result<u32, D::Error>
+    where
+        D: atat::serde_at::serde::Deserializer<'de>,
+    {
+        use atat::serde_at::serde::Deserialize;
+        let value = u32::deserialize(deserializer)?;
+        Ok(value + 1)
+    }
+
+    #[derive(Debug, PartialEq, AtatResp)]
+    struct CustomDeserialize {
+        #[at_arg(position = 0, deserialize_with = "deserialize_plus_one")]
+        arg0: u32,
+        #[at_arg(position = 1)]
+        arg1: u8,
+    }
+
+    #[test]
+    fn test_deserialize_with() {
+        assert_eq!(
+            Ok(CustomDeserialize { arg0: 42, arg1: 7 }),
+            from_str::<CustomDeserialize>("41,7")
+        );
+    }
 }

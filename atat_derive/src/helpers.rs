@@ -82,13 +82,142 @@ pub fn deserialize_struct(ident: &Ident, variants: &[Variant], generics: &Generi
     let anon_field_ind64: Vec<u64> = anon_field_ind.iter().map(|i| *i as u64).collect();
     let anon_field_ind128: Vec<u128> = anon_field_ind.iter().map(|i| *i as u128).collect();
     let len = variants.len();
+    let enum_field = format_ident!("{}Field", ident);
+    let invalid_len_err = format!("struct {ident} with {len} elements");
+
+    let field_deserializers = variants.iter().map(|f| {
+        f.attrs
+            .at_arg
+            .as_ref()
+            .and_then(|attrs| attrs.deserialize_with.as_ref())
+    });
+    let field_wrappers: Vec<Option<syn::Type>> = field_deserializers
+        .clone()
+        .enumerate()
+        .map(|(i, deserializer)| {
+            deserializer
+                .map(|_| format_ident!("__DeserializeWith{}", i))
+                .map(|i| parse_quote! { #i })
+        })
+        .collect();
+
+    let wrapper_defs: Vec<TokenStream> = field_wrappers
+        .iter()
+        .zip(field_deserializers)
+        .zip(&field_types)
+        .filter_map(|((wrapper, deserializer), ty)| {
+            let wrapper = wrapper.as_ref()?;
+            let path = deserializer?;
+            Some(quote! {
+                #[allow(non_camel_case_types)]
+                struct #wrapper(#ty);
+                impl<'de> atat::serde_at::serde::Deserialize<'de> for #wrapper {
+                    #[inline]
+                    fn deserialize<D>(
+                        deserializer: D,
+                    ) -> core::result::Result<Self, D::Error>
+                    where
+                        D: atat::serde_at::serde::Deserializer<'de>,
+                    {
+                        #path(deserializer).map(#wrapper)
+                    }
+                }
+            })
+        })
+        .collect();
+
+    let seq_field_stmts: Vec<TokenStream> = field_names
+        .iter()
+        .enumerate()
+        .map(|(i, _)| {
+            let anon_field = &anon_field[i];
+            let invalid_len = &invalid_len_err;
+            let index = anon_field_ind[i];
+            let ty = field_wrappers[i].as_ref().or(field_types[i].as_ref());
+            let expr = quote! {
+                atat::serde_at::serde::de::SeqAccess::next_element::<#ty>(&mut seq)?
+                    .ok_or_else(|| atat::serde_at::serde::de::Error::invalid_length(
+                        #index,
+                        &#invalid_len,
+                    ))?
+            };
+            if field_wrappers[i].is_some() {
+                quote! { let #anon_field = #expr.0; }
+            } else {
+                quote! { let #anon_field = #expr; }
+            }
+        })
+        .collect();
+
+    let map_option_stmts: Vec<TokenStream> = field_names
+        .iter()
+        .enumerate()
+        .map(|(i, _)| {
+            let anon_field = &anon_field[i];
+            let ty = field_wrappers[i].as_ref().or(field_types[i].as_ref());
+            quote! {
+                let mut #anon_field: Option<#ty> = None;
+            }
+        })
+        .collect();
+
+    let map_assign_stmts: Vec<TokenStream> = field_names
+        .iter()
+        .enumerate()
+        .map(|(i, _)| {
+            let anon_field = &anon_field[i];
+            let ty = field_wrappers[i].as_ref().or(field_types[i].as_ref());
+            quote! {
+                #anon_field = Some(
+                    atat::serde_at::serde::de::MapAccess::next_value::<#ty>(&mut map)?
+                );
+            }
+        })
+        .collect();
+
+    let map_match_arms: Vec<TokenStream> = field_names
+        .iter()
+        .enumerate()
+        .map(|(i, _)| {
+            let anon_field = &anon_field[i];
+            let field_name = &field_names_str[i];
+            let assign = &map_assign_stmts[i];
+            quote! {
+                #enum_field::#anon_field => {
+                    if Option::is_some(&#anon_field) {
+                        return Err(
+                            <A::Error as atat::serde_at::serde::de::Error>::duplicate_field(
+                                #field_name,
+                            ),
+                        );
+                    }
+                    #assign
+                }
+            }
+        })
+        .collect();
+
+    let map_final_stmts: Vec<TokenStream> = field_names
+        .iter()
+        .enumerate()
+        .map(|(i, _)| {
+            let anon_field = &anon_field[i];
+            let field_name = &field_names_str[i];
+            let expr = quote! {
+                #anon_field.ok_or_else(|| <A::Error as atat::serde_at::serde::de::Error>::missing_field(#field_name))?
+            };
+            if field_wrappers[i].is_some() {
+                quote! { let #anon_field = #expr.0; }
+            } else {
+                quote! { let #anon_field = #expr; }
+            }
+        })
+        .collect();
     let visitor = format_ident!("{}Visitor", ident);
     let field_visitor = format_ident!("{}FieldVisitor", ident);
-    let enum_field = format_ident!("{}Field", ident);
     let field_names_bytestr = field_names_str
         .iter()
         .map(|a| Literal::byte_string(a.as_bytes()));
-    let invalid_len_err = format!("struct {ident} with {len} elements");
     let invalid_val_err = format!("field index 0 <= i < {len}");
     let struct_name = format!("struct {ident}");
 
@@ -98,6 +227,8 @@ pub fn deserialize_struct(ident: &Ident, variants: &[Variant], generics: &Generi
     let (serde_impl_generics, serde_ty_generics, _) = serde_generics.split_for_impl();
 
     quote! {
+        #(#wrapper_defs)*
+
         #[allow(non_camel_case_types)]
         enum #enum_field {
             #(#anon_field,)*
@@ -205,13 +336,7 @@ pub fn deserialize_struct(ident: &Ident, variants: &[Variant], generics: &Generi
             where
                 A: atat::serde_at::serde::de::SeqAccess<'de>,
             {
-                #(
-                    let #anon_field =
-                        atat::serde_at::serde::de::SeqAccess::next_element::<#field_types>(&mut seq)?.ok_or_else(||atat::serde_at::serde::de::Error::invalid_length(
-                            #anon_field_ind,
-                            &#invalid_len_err,
-                        ))?;
-                )*
+                #(#seq_field_stmts)*
                 Ok(#ident {
                     #(
                         #field_names: #anon_field
@@ -226,27 +351,12 @@ pub fn deserialize_struct(ident: &Ident, variants: &[Variant], generics: &Generi
             where
                 A: atat::serde_at::serde::de::MapAccess<'de>,
             {
-                #(
-                    let mut #anon_field: Option<#field_types> = None;
-                )*
+                #(#map_option_stmts)*
                 while let Some(key) =
                     atat::serde_at::serde::de::MapAccess::next_key::<#enum_field>(&mut map)?
                 {
                     match key {
-                        #(
-                            #enum_field::#anon_field => {
-                                if Option::is_some(&#anon_field) {
-                                    return Err(
-                                        <A::Error as atat::serde_at::serde::de::Error>::duplicate_field(
-                                            #field_names_str,
-                                        ),
-                                    );
-                                }
-                                #anon_field = Some(
-                                    atat::serde_at::serde::de::MapAccess::next_value::<#field_types>(&mut map)?
-                                );
-                            }
-                        )*
+                        #(#map_match_arms)*
                         _ => {
                             atat::serde_at::serde::de::MapAccess::next_value::<
                                 atat::serde_at::serde::de::IgnoredAny,
@@ -254,9 +364,7 @@ pub fn deserialize_struct(ident: &Ident, variants: &[Variant], generics: &Generi
                         }
                     }
                 }
-                #(
-                    let #anon_field = #anon_field.ok_or_else(|| <A::Error as atat::serde_at::serde::de::Error>::missing_field(#field_names_str))?;
-                )*
+                #(#map_final_stmts)*
                 Ok(#ident {
                     #(
                         #field_names: #anon_field

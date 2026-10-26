@@ -36,6 +36,7 @@ pub struct ArgAttributes {
     pub value: Option<i64>,
     pub position: Option<usize>,
     pub default: bool,
+    pub deserialize_with: Option<Path>,
 }
 
 /// Parsed attributes of `#[at_urc(..)]`
@@ -162,6 +163,7 @@ impl Parse for ArgAttributes {
             value: None,
             position: None,
             default: false,
+            deserialize_with: None,
         };
 
         while {
@@ -188,6 +190,30 @@ impl Parse for ArgAttributes {
                             return Err(Error::new(
                                 Span::call_site(),
                                 "position argument must be a positive integer",
+                            ))
+                        }
+                    }
+                }
+                syn::Meta::NameValue(name_value)
+                    if name_value.path.is_ident("deserialize_with") =>
+                {
+                    match name_value.value {
+                        Expr::Lit(ExprLit {
+                            lit: Lit::Str(value),
+                            ..
+                        }) => {
+                            attrs.deserialize_with =
+                                Some(syn::parse_str::<Path>(&value.value()).map_err(|_| {
+                                    Error::new(
+                                    Span::call_site(),
+                                    "deserialize_with must be a string containing a function path",
+                                )
+                                })?);
+                        }
+                        _ => {
+                            return Err(Error::new(
+                                Span::call_site(),
+                                "deserialize_with must be a string containing a function path",
                             ))
                         }
                     }
