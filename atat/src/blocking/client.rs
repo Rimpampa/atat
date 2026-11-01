@@ -1,9 +1,11 @@
+use core::ops::Deref;
+
 use embassy_time::{Duration, Instant, TimeoutError};
 use embedded_io::Write;
 
 use super::AtatClient;
 use crate::helpers::LossyStr;
-use crate::response_slot::ResponseSlot;
+use crate::response_slot::{ResponseSlot, ResponseSlotGuard};
 use crate::{AtatCmd, Config, Error};
 
 /// Client responsible for handling send, receive and timeout from the
@@ -47,23 +49,47 @@ where
         self.res_slot.reset();
     }
 
-    fn flush_and_parse_response<Cmd: AtatCmd>(
+    /// Send `len` bytes of the buffer as a new request.
+    fn send_inner(&mut self, len: usize) -> Result<(), Error> {
+        let stuff = &self.buf[..len];
+        if stuff.len() < 50 {
+            debug!("Sending command: {:?}", LossyStr(stuff));
+        } else {
+            debug!("Sending command with long payload ({} bytes)", stuff.len());
+        }
+
+        self.prepare_new_request();
+
+        self.writer
+            .write_all(&self.buf[..len])
+            .map_err(|_| Error::Write)?;
+
+        Ok(())
+    }
+
+    /// Flush, without awaiting a response.
+    fn flush(
         &mut self,
-        cmd: &Cmd,
-    ) -> Result<Cmd::Response, Error> {
+    ) -> Result<(), Error> {
         self.writer.flush().map_err(|_| Error::Write)?;
 
         self.start_cooldown_timer();
 
-        if !Cmd::EXPECTS_RESPONSE_CODE {
-            return cmd.parse(Ok(&[]));
-        }
+        Ok(())
+    }
 
-        let timeout = Duration::from_millis(Cmd::MAX_TIMEOUT_MS.into());
+    /// Get the raw contents of the response.
+    fn flush_and_get_response(
+        &mut self,
+        max_timeout_ms: u32,
+    ) -> Result<ResponseSlotGuard<'_, INGRESS_BUF_SIZE>, Error> {
+        self.flush()?;
+
+        let timeout = Duration::from_millis(max_timeout_ms.into());
         let response = self
             .with_timeout(timeout, || self.res_slot.try_get())
             .map_err(|_| Error::Timeout)?;
-        cmd.parse((&*response).into())
+        Ok(response)
     }
 
     fn with_timeout<R>(
@@ -115,25 +141,25 @@ where
 
         write(&mut self.writer).map_err(|_| Error::Write)?;
 
-        self.flush_and_parse_response(cmd)
+        if Cmd::EXPECTS_RESPONSE_CODE {
+            let response = self.flush_and_get_response(Cmd::MAX_TIMEOUT_MS)?;
+            cmd.parse(response.deref().into())
+        } else {
+            cmd.parse(Ok(&[]))
+        }
     }
 
     fn send<Cmd: AtatCmd>(&mut self, cmd: &Cmd) -> Result<Cmd::Response, Error> {
         let len = cmd.write(self.buf);
 
-        if len < 50 {
-            debug!("Sending command: {:?}", LossyStr(&self.buf[..len]));
+        self.send_inner(len)?;
+
+        if Cmd::EXPECTS_RESPONSE_CODE {
+            let response = self.flush_and_get_response(Cmd::MAX_TIMEOUT_MS)?;
+            cmd.parse(response.deref().into())
         } else {
-            debug!("Sending command with long payload ({} bytes)", len);
+            cmd.parse(Ok(&[]))
         }
-
-        self.prepare_new_request();
-
-        self.writer
-            .write_all(&self.buf[..len])
-            .map_err(|_| Error::Write)?;
-
-        self.flush_and_parse_response(cmd)
     }
 }
 
